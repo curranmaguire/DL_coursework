@@ -18,21 +18,21 @@ import matplotlib.pyplot as plt
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 print(device)
 DEVICE = device
-START_TRAIN_AT_IMG_SIZE = 4
-LEARNING_RATE           = 1e-3
-BATCH_SIZES             = [32, 32, 32, 16] #each step doubles start train image size
+START_TRAIN_AT_IMG_SIZE = 8
+LEARNING_RATE           = 1e-4
+BATCH_SIZES             = [ 32, 32, 16] #each step doubles start train image size
 image_size              = 32
 CHANNELS_IMG            = 3
 Z_DIM                   = 128  # should be 512 in original paper
 IN_CHANNELS             = 128  # should be 512 in original paper
-LAMBDA_GP               = 10
-PROGRESSIVE_EPOCHS      = [10000, 10000, 10000, 20000]
+LAMBDA_GP               = 100
+PROGRESSIVE_EPOCHS      = [5000, 20000, 30000]
 
 ###########################PARAMS######################################
 #######################################################################
 #https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html used for params
 #and DCGAN implementation
-factors = [1, 1 / 2, 1 / 4, 1 / 8]
+factors = [1, 1 / 2, 1 / 4]
 display_steps = 1000
 from math import log2
 def get_loader(image_size):
@@ -101,6 +101,23 @@ test_iterator = iter(cycle(test_loader))
 
 #----------------------------------------------------------------------------------------
 #---------------------------------MODEL OUTLINE-----------------------------------------
+class WSConv2d(nn.Module):
+
+    def __init__(
+        self, in_channels, out_channels, kernel_size=3, stride=1, padding=1,
+    ):
+        super(WSConv2d, self).__init__()
+        self.conv      = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.scale     = (2 / (in_channels * (kernel_size ** 2))) ** 0.5
+        self.bias      = self.conv.bias #Copy the bias of the current column layer
+        self.conv.bias = None      #Remove the bias
+
+        # initialize conv layer
+        nn.init.normal_(self.conv.weight)
+        nn.init.zeros_(self.bias)
+
+    def forward(self, x):
+        return self.conv(x * self.scale) + self.bias.view(1, self.bias.shape[0], 1, 1)
 '''
 class WSConv2d(nn.Module):
 
@@ -126,7 +143,7 @@ class WSConv2d(nn.Module):
     def forward(self, x):
         x = self.depthwise(x * self.depthwise_scale) + self.depthwise_bias.view(1, self.depthwise_bias.shape[0], 1, 1)
         return self.pointwise(x * self.pointwise_scale) + self.pointwise_bias.view(1, self.pointwise_bias.shape[0], 1, 1)
-'''
+
 class WSConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
         super(WSConv2d, self).__init__()
@@ -160,6 +177,7 @@ class WSConv2d(nn.Module):
         x = self.bn_pointwise(x)
 
         return x
+'''
 class PixelNorm(nn.Module):
     def __init__(self):
         super(PixelNorm, self).__init__()
@@ -447,7 +465,7 @@ def train_fn(
         opt_gen.step()
 
         # Update alpha and ensure less than 1
-        alpha += cur_batch_size / (
+        alpha += cur_batch_size * 1500/ (
             (PROGRESSIVE_EPOCHS[step] * 0.5) * len(dataset)
         )
         alpha = min(alpha, 1)
@@ -482,9 +500,9 @@ critic = Discriminator(
 ).to(DEVICE)
 
 # initialize optimizers
-opt_gen = optim.Adam(gen.parameters(), lr=LEARNING_RATE, betas=(0.0, 0.99))
+opt_gen = optim.Adam(gen.parameters(), lr=LEARNING_RATE, betas=(0.2, 0.99))
 opt_critic = optim.Adam(
-    critic.parameters(), lr=LEARNING_RATE * 0.5, betas=(0.0, 0.99)
+    critic.parameters(), lr=LEARNING_RATE * 2, betas=(0.2, 0.99)
 )
 
 
